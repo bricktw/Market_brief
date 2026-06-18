@@ -17,9 +17,13 @@ import type {
 import { economicStars, type ScoredNews } from "../filter/strict.ts";
 import {
   flashStars,
-  type Jin10CalendarItem,
   type Jin10FlashItem,
 } from "../sources/jin10.ts";
+import {
+  lookupCompanyName,
+  translateEvent,
+  yahooQuoteUrl,
+} from "./i18n.ts";
 import { renderFrontmatter, type Session } from "./frontmatter.ts";
 
 export type { Session } from "./frontmatter.ts";
@@ -31,11 +35,11 @@ export interface BriefData {
   earningsSp500Tech: EarningsItem[];
   earningsTotal: number;
   earningsTw0050: EarningsItem[];
-  ipos: IpoItem[];
+  iposUsWeek: IpoItem[];              // US-listed only, [date, date+6]
+  ipoWindowTo: string;                // YYYY-MM-DD, end of the week window
   topNews: ScoredNews[];
-  flashNews: Jin10FlashItem[];        // already pre-filtered to type=0 w/ content
-  flashEcon3Star: Jin10FlashItem[];   // already pre-filtered to type=1, star>=3
-  jin10Calendar: Jin10CalendarItem[]; // typically [] (host NXDOMAIN)
+  flashNews: Jin10FlashItem[];        // pre-filtered: type=0, has content, important===1
+  flashEcon3Star: Jin10FlashItem[];   // pre-filtered: type=1, star>=3
   generatedAt: string;                // ISO
 }
 
@@ -97,6 +101,11 @@ function fmtRev(n: number | null | undefined): string {
 
 // --- sections --------------------------------------------------------------
 
+function eventBilingual(en: string): string {
+  const zh = translateEvent(en);
+  return zh ? `${zh} / ${en}` : en;
+}
+
 function renderEconomic(d: BriefData): string {
   const lines = ["## 經濟事件 ≥ 3★ / Economic calendar ≥ 3★"];
   if (d.econ3Star.length === 0) {
@@ -107,14 +116,14 @@ function renderEconomic(d: BriefData): string {
     cell(it.time ?? "—"),
     cell(it.country ?? "—"),
     "★".repeat(economicStars(it)),
-    cell(it.event ?? ""),
+    cell(eventBilingual(it.event ?? "")),
     fmtNum(it.estimate),
     fmtNum(it.prev),
   ]);
   lines.push(
     "",
     table(
-      ["Time (UTC)", "Country", "Impact", "Event", "Est", "Prev"],
+      ["Time (UTC)", "Country", "Impact", "Event 事件", "Est", "Prev"],
       rows,
     ),
   );
@@ -128,13 +137,21 @@ function renderEarnings(d: BriefData): string {
     `_S&P 500 tech basket: **${d.earningsSp500Tech.length}** of ${d.earningsTotal} total US earnings._`,
   );
   if (d.earningsSp500Tech.length > 0) {
-    const rows = d.earningsSp500Tech.map((it) => [
-      `\`${it.symbol}\``,
-      formatHour(it.hour),
-      fmtNum(it.epsEstimate),
-      fmtRev(it.revenueEstimate),
-    ]);
-    lines.push("", table(["Symbol", "When", "EPS est", "Rev est"], rows));
+    const rows = d.earningsSp500Tech.map((it) => {
+      const name = lookupCompanyName(it.symbol) ?? "—";
+      const symbolLink = `[\`${it.symbol}\`](${yahooQuoteUrl(it.symbol)})`;
+      return [
+        symbolLink,
+        cell(name),
+        formatHour(it.hour),
+        fmtNum(it.epsEstimate),
+        fmtRev(it.revenueEstimate),
+      ];
+    });
+    lines.push(
+      "",
+      table(["Symbol", "Company 公司", "When", "EPS est", "Rev est"], rows),
+    );
   }
   lines.push(
     "",
@@ -144,21 +161,24 @@ function renderEarnings(d: BriefData): string {
 }
 
 function renderIpo(d: BriefData): string {
-  const lines = ["## IPO 日曆 / IPO calendar"];
-  if (d.ipos.length === 0) {
-    lines.push("", "_今日無 IPO · No IPOs today._");
+  const lines = [
+    `## IPO 日曆 / IPO calendar — US, ${d.date} → ${d.ipoWindowTo}`,
+  ];
+  if (d.iposUsWeek.length === 0) {
+    lines.push("", "_本週無 US IPO · No US IPOs this week._");
     return lines.join("\n");
   }
-  const rows = d.ipos.map((it) => [
-    `\`${it.symbol}\``,
+  const rows = d.iposUsWeek.map((it) => [
+    `[\`${it.symbol}\`](${yahooQuoteUrl(it.symbol)})`,
     cell(it.date),
     it.price == null ? "—" : `$${it.price}`,
+    cell(it.exchange ?? "—"),
     cell(it.status ?? "—"),
     cell(it.name ?? ""),
   ]);
   lines.push(
     "",
-    table(["Symbol", "Date", "Price", "Status", "Name"], rows),
+    table(["Symbol", "Date", "Price", "Exchange", "Status", "Name"], rows),
   );
   return lines.join("\n");
 }
@@ -205,14 +225,10 @@ function renderFlashNews(d: BriefData): string {
 }
 
 function renderFlashEcon(d: BriefData): string {
+  // Suppress entirely when empty — flash type=1 items are sparse outside live
+  // release windows, and the placeholder added noise per user feedback.
+  if (d.flashEcon3Star.length === 0) return "";
   const lines = ["## 金十經濟發布 ≥ 3★ / Jin10 economic releases ≥ 3★"];
-  if (d.flashEcon3Star.length === 0) {
-    lines.push(
-      "",
-      "_Flash 串流暫無高度重要釋出 · No high-impact releases in flash stream._",
-    );
-    return lines.join("\n");
-  }
   const rows = d.flashEcon3Star.map((it) => {
     const dat = it.data;
     return [
@@ -229,36 +245,6 @@ function renderFlashEcon(d: BriefData): string {
     "",
     table(
       ["Time", "Country", "Impact", "Indicator", "Actual", "Est", "Prev"],
-      rows,
-    ),
-  );
-  return lines.join("\n");
-}
-
-function renderJin10Calendar(d: BriefData): string {
-  const lines = ["## 金十亞洲日曆 / Jin10 Asia calendar"];
-  if (d.jin10Calendar.length === 0) {
-    lines.push(
-      "",
-      "_`cdn-rili.jin10.com` 來源目前無法存取 — 亞洲總經請見上方 Finnhub global economic + 金十快訊。_",
-      "",
-      "_Source host `cdn-rili.jin10.com` is currently unreachable (NXDOMAIN). Asia macro coverage is provided above via Finnhub's global economic calendar plus the Jin10 flash stream._",
-    );
-    return lines.join("\n");
-  }
-  const rows = d.jin10Calendar.map((it) => [
-    cell(it.event_time ?? it.pub_time ?? "—"),
-    cell(it.country ?? "—"),
-    "★".repeat(it.star ?? 0),
-    cell(it.name ?? ""),
-    cell(String(it.actual ?? "—")),
-    cell(String(it.consensus ?? "—")),
-    cell(String(it.previous ?? "—")),
-  ]);
-  lines.push(
-    "",
-    table(
-      ["Time", "Country", "Impact", "Event", "Actual", "Est", "Prev"],
       rows,
     ),
   );
@@ -296,7 +282,8 @@ export function renderBrief(d: BriefData): string {
     renderNews(d),
     renderFlashNews(d),
     renderFlashEcon(d),
-    renderJin10Calendar(d),
-  ].join("\n\n");
+  ]
+    .filter((s) => s.length > 0)
+    .join("\n\n");
   return `${fm}\n${header}\n\n${body}\n`;
 }

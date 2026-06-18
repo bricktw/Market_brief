@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import type {
   EarningsItem,
   EconomicItem,
+  IpoItem,
   NewsItem,
 } from "../sources/finnhub.ts";
 
@@ -89,6 +90,24 @@ export function economicStars(item: EconomicItem): number {
 
 export function filterEconomic3Star(items: EconomicItem[]): EconomicItem[] {
   return items.filter((it) => economicStars(it) >= 3);
+}
+
+// ---------------------------------------------------------------------------
+// IPO calendar: keep only US-listed offerings.
+//
+// Finnhub's exchange field varies in granularity ("NASDAQ Global Select",
+// "NYSE American", "NYSE Arca", "Cboe BZX", etc.). We match by the venue
+// prefix that prefixes the entire US ticker namespace. Nulls/empties are
+// dropped (no US listing confirmed → exclude).
+// ---------------------------------------------------------------------------
+
+const US_EXCHANGE_RE = /^(nasdaq|nyse|amex|cboe|bats|otc)\b/i;
+
+export function filterIposUs(items: IpoItem[]): IpoItem[] {
+  return items.filter((it) => {
+    const ex = (it.exchange ?? "").trim();
+    return ex.length > 0 && US_EXCHANGE_RE.test(ex);
+  });
 }
 
 // ---------------------------------------------------------------------------

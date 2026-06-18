@@ -25,15 +25,14 @@ import {
   filterEarningsSp500Tech,
   filterEarningsTw0050,
   filterEconomic3Star,
+  filterIposUs,
   rankTopNews,
 } from "./filter/strict.ts";
 import {
-  fetchJin10Calendar,
   fetchJin10Flash,
   flashStars,
   isFlashEconomic,
   isFlashNews,
-  type Jin10CalendarItem,
   type Jin10FlashItem,
 } from "./sources/jin10.ts";
 import {
@@ -54,6 +53,13 @@ export interface RunPipelineOpts {
 export interface RunPipelineResult {
   filePath: string;
   data: BriefData;
+}
+
+/** "2026-05-08" + 6 → "2026-05-14". Date-string arithmetic in UTC; safe across DST. */
+function addDays(date: string, days: number): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
 async function safe<T>(
@@ -77,7 +83,9 @@ export async function runPipeline(
   const outDir = opts.outDir ?? briefsDir;
   console.log(`[pipeline] building ${session} brief for ${date}`);
 
-  const [econ, earnings, ipos, news, flash, calendar] = await Promise.all([
+  const ipoTo = addDays(date, 6);
+
+  const [econ, earnings, ipos, news, flash] = await Promise.all([
     safe<EconomicItem[]>(
       "economic",
       () => fetchEconomicCalendar({ from: date, to: date }),
@@ -90,16 +98,11 @@ export async function runPipeline(
     ),
     safe<IpoItem[]>(
       "ipo",
-      () => fetchIpoCalendar({ from: date, to: date }),
+      () => fetchIpoCalendar({ from: date, to: ipoTo }),
       [],
     ),
     safe<NewsItem[]>("news", () => fetchNews(), []),
     safe<Jin10FlashItem[]>("jin10-flash", () => fetchJin10Flash(), []),
-    safe<Jin10CalendarItem[]>(
-      "jin10-calendar",
-      () => fetchJin10Calendar(new Date(`${date}T00:00:00Z`)),
-      [],
-    ),
   ]);
 
   const data: BriefData = {
@@ -109,13 +112,16 @@ export async function runPipeline(
     earningsSp500Tech: filterEarningsSp500Tech(earnings),
     earningsTotal: earnings.length,
     earningsTw0050: filterEarningsTw0050(earnings),
-    ipos,
+    iposUsWeek: filterIposUs(ipos),
+    ipoWindowTo: ipoTo,
     topNews: rankTopNews(news),
-    flashNews: flash.filter(isFlashNews).filter((it) => it.data.content),
+    flashNews: flash
+      .filter(isFlashNews)
+      .filter((it) => it.data.content)
+      .filter((it) => it.important === 1),
     flashEcon3Star: flash
       .filter(isFlashEconomic)
       .filter((it) => flashStars(it) >= 3),
-    jin10Calendar: calendar,
     generatedAt: new Date().toISOString(),
   };
 
