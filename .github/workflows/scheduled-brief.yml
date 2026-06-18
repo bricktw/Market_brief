@@ -1,0 +1,109 @@
+# Scheduled Market Brief — runs twice per weekday and pushes the generated
+# brief back to main, which triggers `deploy-pages.yml` to publish the site.
+#
+# Schedule (verify on the first real run that wall-clock TW matches expectation —
+# GH Actions cron runs in UTC, off-by-one days are the classic mistake here):
+#
+#   Morning brief — 07:30 TW Mon–Fri
+#     TW = UTC + 8, so 07:30 TW Mon–Fri = 23:30 UTC Sun–Thu.
+#     Cron in UTC days-of-week:  30 23 * * 0-4    (Sun=0 … Thu=4)
+#
+#   Evening brief — 20:00 TW Mon–Fri
+#     20:00 TW = 12:00 UTC same day (TW Mon–Fri == UTC Mon–Fri at this hour).
+#     Cron in UTC days-of-week:  0 12 * * 1-5     (Mon=1 … Fri=5)
+#
+# GitHub may delay cron up to ~10 min during high-load periods; that's
+# acceptable for a digest. If a run is delayed past the next cron, both fire
+# concurrently — the concurrency group below serializes them.
+#
+# Required setup (one-time, in the repo's GitHub UI):
+#   - Settings → Secrets and variables → Actions → New repository secret
+#       Name:  FINNHUB_API_KEY     Value: <key from local .env>
+#   - Settings → Actions → General → Workflow permissions
+#       → "Read and write permissions" (so the workflow can push the commit back)
+
+name: Scheduled brief
+
+on:
+  schedule:
+    - cron: "30 23 * * 0-4"   # 07:30 TW Mon-Fri (morning)
+    - cron: "0 12 * * 1-5"    # 20:00 TW Mon-Fri (evening)
+  workflow_dispatch:
+    inputs:
+      session:
+        description: "Which session to generate"
+        required: true
+        default: "morning"
+        type: choice
+        options: [morning, evening]
+      date:
+        description: "Optional explicit YYYY-MM-DD (ET). Leave blank to use the session-aware default."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: scheduled-brief
+  cancel-in-progress: false
+
+jobs:
+  brief:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # The commit-and-push step needs the default token, not a deploy key.
+          persist-credentials: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve session
+        id: session
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "session=${{ inputs.session }}" >> "$GITHUB_OUTPUT"
+            echo "date_arg=${{ inputs.date && format('--date={0}', inputs.date) || '' }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "30 23 * * 0-4" ]; then
+            echo "session=morning" >> "$GITHUB_OUTPUT"
+            echo "date_arg=" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "0 12 * * 1-5" ]; then
+            echo "session=evening" >> "$GITHUB_OUTPUT"
+            echo "date_arg=" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Unknown trigger — refusing to guess session"
+            exit 1
+          fi
+
+      - name: Generate brief
+        env:
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+        run: |
+          npm run brief -- --session=${{ steps.session.outputs.session }} ${{ steps.session.outputs.date_arg }}
+
+      - name: Commit & push if changed
+        env:
+          SESSION: ${{ steps.session.outputs.session }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/briefs/
+          if git diff --cached --quiet; then
+            echo "No new brief file to commit (pipeline returned identical content)."
+            exit 0
+          fi
+          # Use the most recent brief filename for the message so the commit log
+          # is greppable by date.
+          FILE=$(git diff --cached --name-only -- 'docs/briefs/*.md' | tail -1)
+          DATE=$(basename "$FILE" | cut -c1-10)
+          git commit -m "brief: ${DATE} ${SESSION} (scheduled)"
+          git push
