@@ -212,15 +212,12 @@ function renderNews(d: BriefData): string {
 }
 
 function renderFlashNews(d: BriefData): string {
-  const lines = ["## 金十快訊 / Jin10 macro flash"];
-  if (d.flashNews.length === 0) {
-    lines.push(
-      "",
-      "_Jin10 flash 暫無資料 · Jin10 flash stream unavailable._",
-    );
-    return lines.join("\n");
-  }
-  lines.push("");
+  // Suppress entirely when empty. Matches the flash-econ section. After the
+  // important===1 filter, a quiet snapshot can legitimately have zero items
+  // even though the feed worked — better to omit than to show a misleading
+  // "stream unavailable" message.
+  if (d.flashNews.length === 0) return "";
+  const lines = ["## 金十快訊 / Jin10 macro flash", ""];
   for (const it of d.flashNews.slice(0, 15)) {
     const mark = it.important ? "★" : "·";
     const title = it.data.title ? `**【${it.data.title}】** ` : "";
