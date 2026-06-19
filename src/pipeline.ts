@@ -13,7 +13,6 @@ import { dirname, resolve } from "node:path";
 
 import {
   fetchEarningsCalendar,
-  fetchEconomicCalendar,
   fetchIpoCalendar,
   fetchNews,
   type EarningsItem,
@@ -21,6 +20,7 @@ import {
   type IpoItem,
   type NewsItem,
 } from "./sources/finnhub.ts";
+import { fetchForexFactoryCalendar } from "./sources/forexfactory.ts";
 import {
   filterEarningsSp500Tech,
   filterEarningsTw0050,
@@ -88,7 +88,10 @@ export async function runPipeline(
   const [econ, earnings, ipos, news, flash] = await Promise.all([
     safe<EconomicItem[]>(
       "economic",
-      () => fetchEconomicCalendar({ from: date, to: date }),
+      // Forex Factory returns the full current week; we filter to the brief
+      // date below. Switched from Finnhub /calendar/economic on 2026-06-19
+      // after that endpoint went paid-only.
+      () => fetchForexFactoryCalendar(),
       [],
     ),
     safe<EarningsItem[]>(
@@ -105,10 +108,15 @@ export async function runPipeline(
     safe<Jin10FlashItem[]>("jin10-flash", () => fetchJin10Flash(), []),
   ]);
 
+  // Forex Factory returns the whole week; keep only rows whose ET wall-clock
+  // date matches the brief date. The feed already carries an ET offset
+  // ("-04:00" / "-05:00"), so the ISO prefix slice is the right field.
+  const econThisDate = econ.filter((it) => it.time.slice(0, 10) === date);
+
   const data: BriefData = {
     date,
     session,
-    econ3Star: filterEconomic3Star(econ),
+    econ3Star: filterEconomic3Star(econThisDate),
     earningsSp500Tech: filterEarningsSp500Tech(earnings),
     earningsTotal: earnings.length,
     earningsTw0050: filterEarningsTw0050(earnings),

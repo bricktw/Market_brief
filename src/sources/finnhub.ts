@@ -141,6 +141,11 @@ const EconomicItemSchema = z.object({
   actual: z.number().nullable().optional(),
   estimate: z.number().nullable().optional(),
   prev: z.number().nullable().optional(),
+  // Display-string forms populated by Forex Factory (preserves "62K", "1.2%",
+  // "<1.00%" — Finnhub-sourced rows leave these undefined). Renderer prefers
+  // these when present, else falls back to fmtNum(estimate)/fmtNum(prev).
+  estimateText: z.string().nullable().optional(),
+  prevText: z.string().nullable().optional(),
   unit: z.string().nullable().optional().default(""),
 });
 

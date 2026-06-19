@@ -106,6 +106,12 @@ function eventBilingual(en: string): string {
   return zh ? `${zh} / ${en}` : en;
 }
 
+/** Prefer the display string (preserves "62K", "1.2%") when present. */
+function fmtEconField(text: string | null | undefined, num: number | null | undefined): string {
+  if (text && text.trim() !== "") return cell(text);
+  return fmtNum(num);
+}
+
 function renderEconomic(d: BriefData): string {
   const lines = ["## 經濟事件 ≥ 3★ / Economic calendar ≥ 3★"];
   if (d.econ3Star.length === 0) {
@@ -117,13 +123,13 @@ function renderEconomic(d: BriefData): string {
     cell(it.country ?? "—"),
     "★".repeat(economicStars(it)),
     cell(eventBilingual(it.event ?? "")),
-    fmtNum(it.estimate),
-    fmtNum(it.prev),
+    fmtEconField(it.estimateText, it.estimate),
+    fmtEconField(it.prevText, it.prev),
   ]);
   lines.push(
     "",
     table(
-      ["Time (UTC)", "Country", "Impact", "Event 事件", "Est", "Prev"],
+      ["Time (ET)", "Country", "Impact", "Event 事件", "Est", "Prev"],
       rows,
     ),
   );
