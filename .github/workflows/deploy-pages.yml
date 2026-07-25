@@ -1,4 +1,4 @@
-# Build VitePress + publish to GitHub Pages on push to main.
+# Build VitePress + publish to GitHub Pages.
 #
 # Setup checklist (one-time, in the repo's GitHub UI):
 #   Settings → Pages → Build and deployment → Source: "GitHub Actions"
@@ -6,6 +6,19 @@
 # No secrets are needed for the build itself — the brief markdown is already
 # committed by the scheduled-brief workflow (or by a local push). This workflow
 # just compiles the static site and uploads it as a Pages artifact.
+#
+# TRIGGERS — why there are three (do not drop `workflow_run`):
+#   - push:         human/local pushes that touch docs/** etc. publish directly.
+#   - workflow_run: the scheduled-brief workflow commits new briefs using the
+#       default GITHUB_TOKEN, and GitHub deliberately does NOT let a GITHUB_TOKEN
+#       push trigger another workflow (recursion guard). So the `push` trigger
+#       above NEVER fires for bot-committed briefs — the site would silently
+#       freeze at the last human-triggered deploy (this happened: stuck from
+#       2026-06-19 to 2026-07-25). `workflow_run` fires after "Scheduled brief"
+#       finishes regardless of the token, which is what keeps the site current.
+#   - workflow_dispatch: manual catch-up button.
+# The two-workflow boundary is preserved (scheduled-brief generates, this one
+# publishes) — they are chained by completion event, not merged.
 
 name: Deploy site
 
@@ -17,6 +30,9 @@ on:
       - ".github/workflows/deploy-pages.yml"
       - "package.json"
       - "package-lock.json"
+  workflow_run:
+    workflows: ["Scheduled brief"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -31,6 +47,12 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # When triggered by the scheduled-brief completion, only publish if that run
+    # succeeded. push / workflow_dispatch have no workflow_run context, so the
+    # first clause lets them through unconditionally.
+    if: >
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
     steps:
       - name: Checkout
         uses: actions/checkout@v4

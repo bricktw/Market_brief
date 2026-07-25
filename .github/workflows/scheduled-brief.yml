@@ -1,5 +1,8 @@
 # Scheduled Market Brief — runs twice per weekday and pushes the generated
-# brief back to main, which triggers `deploy-pages.yml` to publish the site.
+# brief back to main. Publishing is done by `deploy-pages.yml`, which is chained
+# to THIS workflow's completion via a `workflow_run` trigger — NOT via the push.
+# (A push made with the default GITHUB_TOKEN cannot trigger another workflow, so
+# the commit below does not start deploy-pages by itself. See deploy-pages.yml.)
 #
 # Schedule (verify on the first real run that wall-clock TW matches expectation —
 # GH Actions cron runs in UTC, off-by-one days are the classic mistake here):
