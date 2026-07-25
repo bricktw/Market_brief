@@ -23,6 +23,7 @@ features:
 ---
 
 <script setup>
+import { withBase } from 'vitepress'
 import { data as briefs } from './briefs.data.ts'
 
 const latest = briefs[0]
@@ -32,7 +33,7 @@ const recent = briefs.slice(0, 10)
 ## 最新一篇 / Latest brief
 
 <div v-if="latest">
-  <p><a :href="latest.link"><strong>{{ latest.date }} · {{ latest.sessionZh }} / {{ latest.session === 'morning' ? 'Morning Brief' : 'Evening Brief' }}</strong></a></p>
+  <p><a :href="withBase(latest.link)"><strong>{{ latest.date }} · {{ latest.sessionZh }} / {{ latest.session === 'morning' ? 'Morning Brief' : 'Evening Brief' }}</strong></a></p>
 </div>
 <div v-else>
   <p><em>No briefs yet. Run <code>npm run brief -- --session=morning</code> or <code>--session=evening</code> to generate one.</em></p>
@@ -42,7 +43,7 @@ const recent = briefs.slice(0, 10)
 
 <ul v-if="recent.length">
   <li v-for="b in recent" :key="b.link">
-    <a :href="b.link">{{ b.date }} · {{ b.sessionZh }} / {{ b.session === 'morning' ? 'Morning' : 'Evening' }}</a>
+    <a :href="withBase(b.link)">{{ b.date }} · {{ b.sessionZh }} / {{ b.session === 'morning' ? 'Morning' : 'Evening' }}</a>
   </li>
 </ul>
 <p v-else><em>No recent briefs.</em></p>

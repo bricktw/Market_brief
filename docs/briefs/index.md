@@ -3,6 +3,7 @@ title: 全部 / All briefs
 ---
 
 <script setup>
+import { withBase } from 'vitepress'
 import { data as briefs } from '../briefs.data.ts'
 
 const byMonth = {}
@@ -23,7 +24,7 @@ const months = Object.keys(byMonth).sort().reverse()
   <h2 :id="ym">{{ ym }}</h2>
   <ul>
     <li v-for="b in byMonth[ym]" :key="b.link">
-      <a :href="b.link">{{ b.date }} · {{ b.sessionZh }} / {{ b.session === 'morning' ? 'Morning' : 'Evening' }}</a>
+      <a :href="withBase(b.link)">{{ b.date }} · {{ b.sessionZh }} / {{ b.session === 'morning' ? 'Morning' : 'Evening' }}</a>
     </li>
   </ul>
 </div>
